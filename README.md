@@ -13,6 +13,8 @@ Calibration routine depends on a timer, as I could not figure out how to query t
 
 The reaons for all the "b"s in front of the strings is because ctypes expects byte strings, not normal strings, to pass to the DLL functions. This is also the purpose of the hidden _str_to_b_str()_, to do the conversion from normal string to byte string if needed.
 
+Occasionally something goes wrong with the gaussmeter and you will get an error like "Windows has stopped this device because it has reported problems. (code 43)". This is usually solved by holding down the "reset" button on the gaussmeter. Turning the gaussmeter (or your computer) off and on doesn't seem to help, nor does re-installing software on the computer.
+
 HUGE CAVEAT: I have only been able to get this code to work with the 32-bit DLLs. There seems to be an issue loading the 64-bit libusb0.dll that they provided (as investigated from procmon). In theory, this code should work either either 32 or 64 bit DLLs. Of course, to run 32 bit dlls you have to be running 32 bit python, and to run 64 bit dlls you have to use 64 bit python, but this code itself should not need to change. 
 
 You can see in the code where I tried to define where the 32 and 64 bit DLLs are located. Again, for some reason initialization fails with 64 bit codes, but works just fine with 32 bit codes. These are the DLLs that can be downloaded directly from their website, currently located here: https://fwbell.com/resources/software-downloads/ . Note that the 64 bit libraries need to be renamed. The "-x64" part needs to be removed, so that the names are just "usb5100.dll" and "libusb0.dll".
