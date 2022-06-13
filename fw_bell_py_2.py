@@ -74,6 +74,7 @@ class FW_BELL_5180_gaussmeter():
             # this is useful because the gaussmeter tends to not be ready for use for several seconds after being plugged in and initialized by windows.
             while flag:
                 dev_list = usb.core.show_devices()
+                #print(dev_list)
                 if "DEVICE ID 16a2:5100" not in dev_list:
                     print('trying to find device')
                     time.sleep(1)
