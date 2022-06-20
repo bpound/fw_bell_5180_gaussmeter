@@ -9,23 +9,27 @@ import usb.core
 ###########
 
 MODE = 'dc-tesla'
-RANGEB = 1
+RANGEB = 2
+
+# python C:\\Users\\Ben\\Documents\\UCLA\\Research\\Hardware\\fw_bell_magnetic_field_probe\\usb5100-x64\\x64-dist\\fw_bell_py_2.py"
 
 # paths to the 32 and 64 bit DLL files are hardcoded here.
 #Note that usb5100.dll and libusb0.dll must be in the same directory
 # Recommended to put 32 bit in one folder and 64 bit in another folder
 # because for the calling sequence, they must be named as such, but the 64 bit have -x64 appended. To make the libraries work, you need to strip that part.
 pathDLL_32bit = "C:\\Users\\Ben\\Documents\\UCLA\\Research\\Hardware\\fw_bell_magnetic_field_probe\\usb5100-x64\\x64-dist\\32bit\\"
+#pathDLL_32bit = "C:\\Windows\\System32\\"
 pathDLL_64bit = "C:\\Users\\Ben\\Documents\\UCLA\\Research\\Hardware\\fw_bell_magnetic_field_probe\\usb5100-x64\\x64-dist\\64bit\\"
 
 class FW_BELL_5180_gaussmeter():
-    def __init__(self,mode=MODE,rangeB= RANGEB,length=80):
+    def __init__(self,mode=MODE,rangeB= RANGEB,length=80,checkUSB=True):
         """
         Purpose: class to initialize and use the FW Bell 5180 gaussmeter
         Inputs:
         -- mode='dc-tesla',dc-gauss','dc-am','ac-tesla','ac-gauss','ac-am'
         -- rangeB= -1 for auto, 0 (0 - 300 G) low range, 1 (1-3 kG) mid range, or 2 (2-30 kG) high field range. Note that the auto function doesn't seem to work (gets a syntax error), so its probably better to set the range yourself.
-        
+        -- length=80, which is the default return string buffer length. 80 is a good numer, only increase this if you start stringing together lots of commands.
+        -- checkUSB: use usb.core to see if the device is attached.
         """
         
         # save as defaults, for now.
@@ -36,23 +40,14 @@ class FW_BELL_5180_gaussmeter():
         # determines whether being run by 32 or 64 bit python
         if ctypes.sizeof(ctypes.c_void_p) == 4:
             pathDLL = pathDLL_32bit
-            checkUSB = False
-        
         else:
             pathDLL = pathDLL_64bit
-            checkUSB = True
-            
-            
-        # add the path to the dll directory search
-        os.add_dll_directory(pathDLL)
-
+            print('I hope you have figured out how to make this code work with 64 bit libraries, because I never could make it work. Only 32-bit libraries (with 32 bit python) work current.')
         
         # this makes sure that the dll is found. No need to do anything about the libusb0.dll, the usb5100.dll automatically calls and loads it.
-        dllName = pathDLL + "usb5100.dll" 
-        
-        # open DLL
+        dllName = os.path.join(pathDLL,"usb5100.dll" )
         fwbell = ctypes.CDLL(dllName)
-
+        
         # define open and close functions with argument and return types.
         self.openUSB5100 = fwbell.openUSB5100 
         self.openUSB5100.argtypes = ()
@@ -67,23 +62,30 @@ class FW_BELL_5180_gaussmeter():
         self.scpiCommand.restype = ctypes.c_int
         
         if checkUSB:
-                
             flag = True
             
             # use usb.core to try to find the gaussmeter.
             # this is useful because the gaussmeter tends to not be ready for use for several seconds after being plugged in and initialized by windows.
+            # should probably check the logic on this - keep looping in sets of 10. after each set of 10, if the device is not found, query user to see if we should keep searching. 
             while flag:
-                dev_list = usb.core.show_devices()
-                #print(dev_list)
-                if "DEVICE ID 16a2:5100" not in dev_list:
-                    print('trying to find device')
-                    time.sleep(1)
-                else:
-                    flag = False
+                for ii in range(10):
+                    dev_list = usb.core.show_devices()
+                    if "DEVICE ID 16a2:5100" not in dev_list and flag:
+                        print('trying to find device')
+                        time.sleep(1)
+                    else:
+                        flag = False
+                        print('Found the device, moving on: ',dev_list)
+                        break
+                        
+                if flag is True:
+                    resp = input('Keep looking for device (Y/n)? ')
+                    if resp.lower() == 'n':
+                        flag = False
+                        print('this code will error out somewhere else.')
+                    else:
+                        flag = True
                     
-            print('Found the device, moving on: ',dev_list)
-            
-
         # open device and save handle to self.idn. should be a 4-bit number, not zero. 
         self.initialized=False
         self.initialize_connection()
@@ -122,17 +124,14 @@ class FW_BELL_5180_gaussmeter():
             #cmd = b"*OPC?;" + cmd
                             
             # now that we have a byte string, try to execute the command
-            try:
-                resp= ctypes.create_string_buffer(self.length-1) # it automatically gets terminated by a 0 byte, so we need to create a string buffer with one fewer to account for this.
+            
+            resp= ctypes.create_string_buffer(self.length-1) # it automatically gets terminated by a 0 byte, so we need to create a string buffer with one fewer to account for this.
                             
-                ret = self.scpiCommand( self.idn , ctypes.create_string_buffer(cmd) ,resp,self.length )
-                string_value = str(repr(resp.value))
-                val = string_value[2:-1]
+            ret = self.scpiCommand( self.idn , ctypes.create_string_buffer(cmd) ,resp,self.length )
+            string_value = str(repr(resp.value))
+            val = string_value[2:-1]
 
-            except Exception as e:
-                print('that command (%s) did not work. The error is: '%(str(repr(resp.value))))
-                print(e)
-                val = 'ERROR'
+
         else:
             val = 'error - not initialized'
             
@@ -160,7 +159,7 @@ class FW_BELL_5180_gaussmeter():
             print('starting calibration')
             status = self.direct_command(cmd,output='returned')
 
-            
+            # takes about 5 seconds to calibrate, add a second for security buffer
             time.sleep(6)
             print('status of calibration: ',status)
    
@@ -207,9 +206,8 @@ class FW_BELL_5180_gaussmeter():
             
             
             newcmd = self._str_to_b_str(cmd)
-            print('mode setting command: ',newcmd)
             status = self.direct_command(newcmd,output='returned')
-            print('status of mode setting: ', status)
+            print('mode setting command : status of mode setting: ', cmd , ' : ',status)
 
             
             
@@ -223,7 +221,9 @@ class FW_BELL_5180_gaussmeter():
             newcmd = self._str_to_b_str(cmd)
             
             status = self.direct_command(newcmd,output='returned')
-            print('sense command, result: ',newcmd, ",",status)
+            print('sense command : result: ',newcmd, " : ",status)
+
+            
                              
     def initialize_connection(self):
         """
@@ -247,6 +247,8 @@ class FW_BELL_5180_gaussmeter():
             print('initialization failed with error:')
             print(e)
             self.idn = 0
+
+        self.initialized = True
             
     def test_connection(self):
         """
@@ -300,7 +302,7 @@ class FW_BELL_5180_gaussmeter():
                 elif 'G' in ret_str:
                     flux_value = float(ret_str[:-1])
                     val = [flux_value,'G']
-                print('further processed string (right before num conversion): ', val)
+                #print('further processed string (right before num conversion): ', val)
             
             if 'printed' in output:
                 print('measured flux value: ',flux_value)
@@ -332,30 +334,31 @@ class FW_BELL_5180_gaussmeter():
         
 if __name__ == '__main__':
     
-    dev = FW_BELL_5180_gaussmeter() # this initializes the connection, sets the initial settings, and tests the connection
-    
-    
+    dev = FW_BELL_5180_gaussmeter(mode='dc-tesla',rangeB=2) # this initializes the connection, sets the initial settings, and tests the connection
     dev.calibrate() # this will start the calibration routine (it will prompt the user to press enter when calibration is to start)
     
     
     # measure the flux five times
     fluxL = [] # flux list where I will store the values
+    unitL = []
     for ii in range(5):
         val = dev.measure_flux()
         fluxL.append(val[0]) # just pluck out the flux value, not the unit
+        unitL.append(val[1])
         time.sleep(1)       # pause the loop for 1 second
         
     print('Here are the measured flux values:')
     print(fluxL)
+    print(unitL)
     
     ## here is an example of how to use the direct_command method directly for purposes not explicitly detailed here.
     # we try to load any error that the gaussmeter might have, and show it.
-    status = dev.direct_command(b':SYSTEM:ERROR?')
-    print('error status: ',status)
+    #status = dev.direct_command(b':SYSTEM:ERROR?')
+    #print('error status: ',status)
     
     # here we clear all the system errors
-    status = dev.direct_command(b':SYSTEM:CLEAR')
-    print('clear error status: ',status)
+    #status = dev.direct_command(b':SYSTEM:CLEAR')
+    #print('clear error status: ',status)
     
     # close the connection to the gaussmeter
     dev.close_connection()
